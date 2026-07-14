@@ -1,7 +1,7 @@
 {
-  "name": "erp-namoo-v7",
+  "name": "erp-namoo-v8",
+  "version": "8.0.0",
   "private": true,
-  "version": "7.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
