@@ -1,20 +1,8 @@
-# ERP Namoo V8
+# ERP Namoo V8.1 Vercel Fix
 
-## 주요 변경
-- 다크/라이트 모드: 왼쪽 아래
-- 주문 관리 → 수주
-- 수주등록 / 원가관리 / 매출·수익
-- 거래처 관리 제거
-- 발주: 원단 / 부자재 / 공임 / 환율
-- 물류: 패킹리스트 / 출고·수입
-- 매입·결제: 실제 매입 / 월별 결제
-- 정산: 사후정산
-- 각 주요 모듈 Excel Import / Export
-- Style No. 기준 하위 모듈 자동 연결
+- package-lock.json intentionally removed
+- npm public registry forced through .npmrc
+- Node.js 24.x specified
 
-## 현재 저장 방식
-- 브라우저 LocalStorage
-- 여러 사용자 공용 데이터는 Supabase 연결 버전에서 적용 예정
-
-## 로그인
-- 이번 내부 프로토타입은 로그인 없이 바로 진입합니다.
+Upload all files and the src folder to GitHub.
+Delete any existing package-lock.json from the repository before redeploying.

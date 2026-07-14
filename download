@@ -1,0 +1,303 @@
+
+import React, { useMemo, useState } from "react";
+import * as XLSX from "xlsx";
+
+const STORAGE_KEY = "erp_namoo_v8";
+
+const initialData = {
+  orders: [{
+    id: "ORD-001", styleNo: "NJ5JS53JK", buyer: "THE NORTH FACE", season: "F26",
+    item: "COMFY TRAINING ZIP UP", qty: 4800, factory: "", status: "수주등록",
+    colors: [
+      { color: "BLK(J)", s: 240, m: 800, l: 950, xl: 740, xxl: 270 },
+      { color: "DSL(K)", s: 140, m: 470, l: 580, xl: 450, xxl: 160 },
+    ],
+    bom: [
+      { styleNo:"NJ5JS53JK", position:"SHELL A", subPosition:"MAIN BODY", garmentColor:"BLK", garmentSize:"ALL", description:"ST-TH-3745_YOC", widthSize:'58"', color:"BLACK", qty:3000, net:1.393, loss:3, cons:1.435, requiredQty:4305, unit:"YD", supplier:"SOLTTEX" },
+      { styleNo:"NJ5JS53JK", position:"ZIPPER 1", subPosition:"FRONT ZIPPER", garmentColor:"BLK", garmentSize:"090(S)", description:"N#5 REVERSE 2-WAY", widthSize:"63CM", color:"K4085", qty:240, net:1, loss:3, cons:1.03, requiredQty:247.2, unit:"EA", supplier:"YKK" }
+    ]
+  }],
+  purchases: [
+    { id:"PO-001", type:"원단", styleNo:"NJ5JS53JK", supplier:"SOLTTEX", description:"ST-TH-3745_YOC", qty:6888, unit:"YD", currency:"KRW", unitPrice:7500, exchangeRate:1, status:"발주완료" },
+    { id:"PO-002", type:"부자재", styleNo:"NJ5JS53JK", supplier:"YKK", description:"N#5 REVERSE ZIPPER", qty:4944, unit:"EA", currency:"USD", unitPrice:0.58, exchangeRate:1470, status:"입고대기" },
+    { id:"PO-003", type:"공임", styleNo:"NJ5JS53JK", supplier:"NAMOO VN", description:"SEWING CM", qty:4800, unit:"PCS", currency:"USD", unitPrice:6, exchangeRate:1470, status:"확정" }
+  ],
+  exchangeRates: { usdKrw:1470, usdVnd:26200, krwVnd:17.82, date:"2026-07-14" },
+  packing: [
+    { styleNo:"NJ5JS53JK", color:"BLK", planned:3000, shipped:2998, imported:2996 },
+    { styleNo:"NJ5JS53JK", color:"DSL", planned:1800, shipped:1802, imported:1800 }
+  ],
+  purchasesActual: [
+    { supplier:"SOLTTEX", type:"원단", invoice:"STX-0629", currency:"KRW", invoiceAmount:51620000, exchangeRate:1, paymentMonth:"2026-07" },
+    { supplier:"YKK", type:"부자재", invoice:"YKK-0711", currency:"USD", invoiceAmount:2866, exchangeRate:1468, paymentMonth:"2026-08" }
+  ],
+  sales: [{ styleNo:"NJ5JS53JK", sellingFob:22.5, manufacturingCost:18.98, qty:4800 }]
+};
+
+function loadData(){
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || initialData; }
+  catch { return initialData; }
+}
+function saveData(data){ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+function n(v){ const x=Number(v); return Number.isFinite(x)?x:0; }
+function usd(v){ return `$${n(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`; }
+function krw(v){ return `₩${Math.round(n(v)).toLocaleString()}`; }
+function uid(prefix){ return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
+
+const menu = [
+  { group:"메인", items:[["dashboard","📊","대시보드"]] },
+  { group:"수주", items:[["order","🧾","수주등록"],["cost","💰","원가관리"],["sales","📈","매출·수익"]] },
+  { group:"발주", items:[["fabricPO","🧵","원단 발주"],["trimPO","🪡","부자재 발주"],["cmPO","🏭","공임 발주"],["exchange","💱","환율 관리"]] },
+  { group:"물류", items:[["packing","📦","패킹리스트"],["shipping","🚚","출고·수입 현황"]] },
+  { group:"매입·결제", items:[["actualPurchase","🧾","실제 매입현황"],["payment","💳","월별 결제"]] },
+  { group:"정산", items:[["settlement","✅","사후정산"]] },
+];
+
+function downloadWorkbook(name, sheets){
+  const wb = XLSX.utils.book_new();
+  Object.entries(sheets).forEach(([sheetName, rows])=>{
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0,31));
+  });
+  XLSX.writeFile(wb, name);
+}
+
+function UploadButton({onRows,label="Excel Import"}){
+  function handle(e){
+    const file=e.target.files?.[0];
+    if(!file) return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      try{
+        const wb=XLSX.read(ev.target.result,{type:"array"});
+        const result={};
+        wb.SheetNames.forEach(name=>{
+          result[name]=XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:""});
+        });
+        onRows(result);
+      }catch(err){ alert("Excel 파일을 읽지 못했습니다."); }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value="";
+  }
+  return <label className="btn green upload">{label}<input type="file" accept=".xlsx,.xls,.csv" onChange={handle}/></label>;
+}
+
+function App(){
+  const [data,setData]=useState(loadData);
+  const [page,setPage]=useState("order");
+  const [theme,setTheme]=useState(localStorage.getItem("erp_theme")||"dark");
+  const [selectedOrder,setSelectedOrder]=useState(data.orders[0]?.id||"");
+  const [subTab,setSubTab]=useState("basic");
+
+  function update(next){ setData(next); saveData(next); }
+  function toggleTheme(){
+    const next=theme==="dark"?"light":"dark";
+    setTheme(next); localStorage.setItem("erp_theme",next);
+  }
+
+  const currentOrder=data.orders.find(o=>o.id===selectedOrder)||data.orders[0];
+  const title=menu.flatMap(g=>g.items).find(i=>i[0]===page)?.[2]||"ERP";
+
+  function addOrder(){
+    const order={id:uid("ORD"),styleNo:"",buyer:"",season:"",item:"",qty:0,factory:"",status:"수주등록",colors:[],bom:[]};
+    update({...data,orders:[order,...data.orders]}); setSelectedOrder(order.id);
+  }
+  function patchOrder(patch){
+    update({...data,orders:data.orders.map(o=>o.id===currentOrder.id?{...o,...patch}:o)});
+  }
+  function registerOrder(){
+    if(!currentOrder.styleNo) return alert("Style No.를 입력해 주세요.");
+    const exists=data.purchases.some(p=>p.styleNo===currentOrder.styleNo);
+    const generated=exists?data.purchases:[
+      ...data.purchases,
+      ...currentOrder.bom.map((b,i)=>({
+        id:uid("PO"),type:b.position?.includes("SHELL")||b.position?.includes("LINING")?"원단":"부자재",
+        styleNo:currentOrder.styleNo,supplier:b.supplier,description:b.description,qty:b.requiredQty,unit:b.unit,
+        currency:"USD",unitPrice:0,exchangeRate:data.exchangeRates.usdKrw,status:"발주대기"
+      }))
+    ];
+    const salesExists=data.sales.some(s=>s.styleNo===currentOrder.styleNo);
+    update({...data,purchases:generated,sales:salesExists?data.sales:[...data.sales,{styleNo:currentOrder.styleNo,sellingFob:0,manufacturingCost:0,qty:n(currentOrder.qty)}]});
+    alert("상품 등록 완료: 원가·매출·발주 모듈에 Style이 자동 연결되었습니다.");
+  }
+
+  return <div className={`app ${theme}`}>
+    <aside className="sidebar">
+      <div className="brand"><span>👗</span><div><b>Fashion ERP</b><small>Namoo 통합 관리</small></div></div>
+      <nav>
+        {menu.map(g=><div key={g.group}><div className="nav-title">{g.group}</div>{g.items.map(i=><button key={i[0]} className={`nav-item ${page===i[0]?"active":""}`} onClick={()=>setPage(i[0])}><span>{i[1]}</span>{i[2]}</button>)}</div>)}
+      </nav>
+      <div className="sidebar-bottom">
+        <button className="theme-btn" onClick={toggleTheme}><span>{theme==="dark"?"🌙":"☀️"}</span><span>{theme==="dark"?"다크 모드":"라이트 모드"}</span><span>⇄</span></button>
+        <div className="user"><div className="avatar">Y</div><div><b>Yoon</b><small>관리자</small></div></div>
+      </div>
+    </aside>
+
+    <main className="main">
+      <header className="topbar"><div><h1>{title}</h1><p>Style No. 기준으로 수주부터 정산까지 연결됩니다.</p></div></header>
+      <section className="content">
+        {page==="dashboard" && <Dashboard data={data}/>}
+        {page==="order" && <OrderPage data={data} update={update} order={currentOrder} setSelectedOrder={setSelectedOrder} addOrder={addOrder} patchOrder={patchOrder} registerOrder={registerOrder} subTab={subTab} setSubTab={setSubTab}/>}
+        {page==="cost" && <CostPage data={data}/>}
+        {page==="sales" && <SalesPage data={data} update={update}/>}
+        {["fabricPO","trimPO","cmPO"].includes(page) && <PurchasePage data={data} update={update} type={page==="fabricPO"?"원단":page==="trimPO"?"부자재":"공임"}/>}
+        {page==="exchange" && <ExchangePage data={data} update={update}/>}
+        {page==="packing" && <PackingPage data={data} update={update}/>}
+        {page==="shipping" && <ShippingPage data={data}/>}
+        {page==="actualPurchase" && <ActualPurchasePage data={data} update={update}/>}
+        {page==="payment" && <PaymentPage data={data}/>}
+        {page==="settlement" && <SettlementPage data={data}/>}
+      </section>
+    </main>
+  </div>;
+}
+
+function Dashboard({data}){
+  const totalPO=data.purchases.reduce((s,r)=>s+n(r.qty)*n(r.unitPrice)*n(r.exchangeRate),0);
+  const totalActual=data.purchasesActual.reduce((s,r)=>s+n(r.invoiceAmount)*n(r.exchangeRate),0);
+  const unsettled=totalPO-totalActual;
+  return <><div className="kpis">
+    <Kpi label="수주 Style" value={data.orders.length}/>
+    <Kpi label="예상 발주액" value={krw(totalPO)}/>
+    <Kpi label="실제 매입액" value={krw(totalActual)}/>
+    <Kpi label="미정산 차이" value={krw(unsettled)} cls={unsettled<0?"negative":"warning"}/>
+  </div><div className="panel"><h2>전체 업무 흐름</h2><div className="flow">{["수주","발주","패킹/출고","매입/결제","사후정산"].map((x,i)=><div className="flow-card" key={x}><b>{i+1}. {x}</b><span>Style No. 자동 연결</span></div>)}</div></div></>;
+}
+function Kpi({label,value,cls=""}){ return <div className="kpi"><span>{label}</span><strong className={cls}>{value}</strong></div>; }
+
+function OrderPage({data,update,order,setSelectedOrder,addOrder,patchOrder,registerOrder,subTab,setSubTab}){
+  if(!order) return <div className="panel"><button className="btn primary" onClick={addOrder}>+ 수주등록</button></div>;
+  function importOrder(sheets){
+    const first=Object.values(sheets)[0]||[];
+    const rows=first;
+    const bom=rows.map(r=>({
+      styleNo:r["Style No."]||r["STYLE #"]||order.styleNo,
+      position:r["Position"]||r["POSITION"]||"",
+      subPosition:r["Sub Position"]||"",
+      garmentColor:r["Garment Color"]||"",
+      garmentSize:r["Garment Size"]||"",
+      description:r["Item Description"]||"",
+      widthSize:r["Width / Size"]||"",
+      color:r["Color"]||"",
+      qty:n(r["Qty"]),
+      net:n(r["Net"]),
+      loss:n(r["Loss %"]||3),
+      cons:n(r["Cons."])||n(r["Net"])*(1+n(r["Loss %"]||3)/100),
+      requiredQty:n(r["Required Qty"]),
+      unit:r["Unit"]||"",
+      supplier:r["Supplier"]||""
+    })).filter(r=>r.position||r.description);
+    patchOrder({bom});
+    alert(`${bom.length}개 BOM 행을 불러왔습니다.`);
+  }
+  function exportOrder(){
+    downloadWorkbook(`${order.styleNo||"Order"}_수주등록.xlsx`,{
+      BasicInfo:[{StyleNo:order.styleNo,Buyer:order.buyer,Season:order.season,Item:order.item,Qty:order.qty,Factory:order.factory,Status:order.status}],
+      ColorSize:order.colors.map(r=>({Color:r.color,"090(S)":r.s,"095(M)":r.m,"100(L)":r.l,"105(XL)":r.xl,"110(XXL)":r.xxl,Total:n(r.s)+n(r.m)+n(r.l)+n(r.xl)+n(r.xxl)})),
+      BOM:order.bom
+    });
+  }
+  return <div className="stack">
+    <div className="page-actions"><select value={order.id} onChange={e=>setSelectedOrder(e.target.value)}>{data.orders.map(o=><option value={o.id} key={o.id}>{o.styleNo||"신규 수주"} · {o.item||"품명 미정"}</option>)}</select><button className="btn" onClick={addOrder}>+ 신규</button><UploadButton onRows={importOrder}/><button className="btn" onClick={exportOrder}>Excel Export</button><button className="btn primary" onClick={registerOrder}>상품 등록</button></div>
+    <div className="tabs">{[["basic","기본정보"],["qty","Color/Size Qty"],["bom","BOM"],["files","첨부파일"]].map(t=><button key={t[0]} className={`tab ${subTab===t[0]?"active":""}`} onClick={()=>setSubTab(t[0])}>{t[1]}</button>)}</div>
+    {subTab==="basic" && <div className="panel order-grid"><div className="sketch">🖼️<b>Sketch / Style Image</b><small>이미지 첨부는 DB 연결 시 저장됩니다.</small><button className="btn">파일 선택</button></div><div className="form-grid">
+      {[
+        ["Buyer","buyer"],["Season","season"],["Style No.","styleNo"],["Item","item"],["Quantity","qty"],["Factory","factory"],["Status","status"]
+      ].map(([label,key])=><label key={key}>{label}<input value={order[key]??""} type={key==="qty"?"number":"text"} onChange={e=>patchOrder({[key]:e.target.value})}/></label>)}
+    </div></div>}
+    {subTab==="qty" && <ColorSizeEditor order={order} patchOrder={patchOrder}/>}
+    {subTab==="bom" && <BomEditor order={order} patchOrder={patchOrder}/>}
+    {subTab==="files" && <div className="panel empty">Tech Pack, Sketch, Spec, Buyer Excel 첨부 영역</div>}
+  </div>;
+}
+
+function ColorSizeEditor({order,patchOrder}){
+  function patch(i,key,val){ const rows=order.colors.map((r,idx)=>idx===i?{...r,[key]:val}:r); patchOrder({colors:rows}); }
+  return <div className="panel"><div className="head"><div><h2>색상 · 사이즈별 수량</h2></div><button className="btn" onClick={()=>patchOrder({colors:[...order.colors,{color:"",s:0,m:0,l:0,xl:0,xxl:0}]})}>+ 색상 추가</button></div><div className="table-wrap"><table><thead><tr><th>Color</th><th>090(S)</th><th>095(M)</th><th>100(L)</th><th>105(XL)</th><th>110(XXL)</th><th>Total</th><th>삭제</th></tr></thead><tbody>{order.colors.map((r,i)=><tr key={i}>{["color","s","m","l","xl","xxl"].map(k=><td key={k}><input value={r[k]} type={k==="color"?"text":"number"} onChange={e=>patch(i,k,e.target.value)}/></td>)}<td>{[r.s,r.m,r.l,r.xl,r.xxl].reduce((s,v)=>s+n(v),0).toLocaleString()}</td><td><button onClick={()=>patchOrder({colors:order.colors.filter((_,x)=>x!==i)})}>×</button></td></tr>)}</tbody></table></div></div>;
+}
+
+function BomEditor({order,patchOrder}){
+  function patch(i,key,val){
+    const rows=order.bom.map((r,idx)=>{
+      if(idx!==i) return r;
+      const next={...r,[key]:val};
+      if(["net","loss","qty"].includes(key)){
+        next.cons=n(next.net)*(1+n(next.loss)/100);
+        next.requiredQty=n(next.cons)*n(next.qty);
+      }
+      return next;
+    }); patchOrder({bom:rows});
+  }
+  const cols=[["styleNo","Style No."],["position","Position"],["subPosition","Sub Position"],["garmentColor","Garment Color"],["garmentSize","Garment Size"],["description","Item Description"],["widthSize","Width / Size"],["color","Color"],["qty","Qty"],["net","Net"],["loss","Loss %"],["cons","Cons."],["requiredQty","Required Qty"],["unit","Unit"],["supplier","Supplier"]];
+  return <div className="panel"><div className="head"><div><h2>BOM 정보</h2><p>Cons.와 Required Qty는 자동 계산됩니다.</p></div><button className="btn" onClick={()=>patchOrder({bom:[...order.bom,Object.fromEntries(cols.map(c=>[c[0],""]))]})}>+ BOM 행 추가</button></div><div className="table-wrap"><table className="wide"><thead><tr>{cols.map(c=><th key={c[0]}>{c[1]}</th>)}<th>삭제</th></tr></thead><tbody>{order.bom.map((r,i)=><tr key={i}>{cols.map(([key])=><td key={key}><input value={r[key]??""} type={["qty","net","loss","cons","requiredQty"].includes(key)?"number":"text"} readOnly={["cons","requiredQty"].includes(key)} onChange={e=>patch(i,key,e.target.value)}/></td>)}<td><button onClick={()=>patchOrder({bom:order.bom.filter((_,x)=>x!==i)})}>×</button></td></tr>)}</tbody></table></div></div>;
+}
+
+function CostPage({data}){
+  return <div className="panel"><h2>원가관리</h2><p className="muted">수주 BOM에서 자동 전달된 Style별 원자재·부자재·공임 원가를 관리합니다.</p><div className="table-wrap"><table><thead><tr><th>Style</th><th>원단 항목</th><th>부자재 항목</th><th>수주수량</th><th>Status</th></tr></thead><tbody>{data.orders.map(o=><tr key={o.id}><td>{o.styleNo}</td><td>{o.bom.filter(b=>/SHELL|LINING|FABRIC/i.test(b.position)).length}</td><td>{o.bom.filter(b=>!/SHELL|LINING|FABRIC/i.test(b.position)).length}</td><td>{n(o.qty).toLocaleString()}</td><td>원가대기</td></tr>)}</tbody></table></div></div>;
+}
+
+function SalesPage({data,update}){
+  function patch(styleNo,val){ update({...data,sales:data.sales.map(s=>s.styleNo===styleNo?{...s,sellingFob:n(val)}:s)}); }
+  return <div className="stack"><div className="page-actions"><button className="btn" onClick={()=>downloadWorkbook("매출수익.xlsx",{Sales:data.sales.map(s=>({...s,profit:n(s.sellingFob)-n(s.manufacturingCost),margin:n(s.sellingFob)?(n(s.sellingFob)-n(s.manufacturingCost))/n(s.sellingFob)*100:0,totalSales:n(s.sellingFob)*n(s.qty)}))})}>Excel Export</button></div><div className="cards">{data.sales.map(s=>{const profit=n(s.sellingFob)-n(s.manufacturingCost);const margin=n(s.sellingFob)?profit/n(s.sellingFob)*100:0;return <div className="panel" key={s.styleNo}><h3>{s.styleNo}</h3><div className="metric-grid"><Metric label="제조원가" value={usd(s.manufacturingCost)}/><label>Selling FOB<input type="number" value={s.sellingFob} onChange={e=>patch(s.styleNo,e.target.value)}/></label><Metric label="Unit Profit" value={usd(profit)} cls={profit<0?"negative":"positive"}/><Metric label="Margin" value={`${margin.toFixed(1)}%`} cls={margin<15?"negative":margin<20?"warning":"positive"}/><Metric label="총매출" value={usd(n(s.sellingFob)*n(s.qty))}/><Metric label="총이익" value={usd(profit*n(s.qty))}/></div></div>})}</div></div>;
+}
+function Metric({label,value,cls=""}){return <div className="metric"><span>{label}</span><strong className={cls}>{value}</strong></div>}
+
+function PurchasePage({data,update,type}){
+  const rows=data.purchases.filter(r=>r.type===type);
+  function exportRows(){ downloadWorkbook(`${type}_발주.xlsx`,{[`${type}발주`]:rows.map(r=>({...r,amountKRW:n(r.qty)*n(r.unitPrice)*n(r.exchangeRate)}))}); }
+  function importRows(sheets){
+    const arr=Object.values(sheets)[0]||[];
+    const mapped=arr.map(r=>({id:uid("PO"),type,styleNo:r["Style"]||r["Style No."]||"",supplier:r["Supplier"]||"",description:r["Description"]||"",qty:n(r["Qty"]),unit:r["Unit"]||"",currency:r["Currency"]||"USD",unitPrice:n(r["Unit Price"]),exchangeRate:n(r["Exchange Rate"])||data.exchangeRates.usdKrw,status:r["Status"]||"발주대기"}));
+    update({...data,purchases:[...mapped,...data.purchases]});
+  }
+  return <div className="panel"><div className="head"><div><h2>{type} 발주</h2><p>BOM 필요량에서 연결하고 실제 환율로 원화 금액을 계산합니다.</p></div><div className="page-actions"><UploadButton onRows={importRows}/><button className="btn" onClick={exportRows}>Excel Export</button></div></div><div className="table-wrap"><table><thead><tr><th>Style</th><th>Supplier</th><th>Description</th><th>Qty</th><th>Unit</th><th>Currency</th><th>Unit Price</th><th>환율</th><th>KRW 금액</th><th>Status</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.styleNo}</td><td>{r.supplier}</td><td>{r.description}</td><td>{n(r.qty).toLocaleString()}</td><td>{r.unit}</td><td>{r.currency}</td><td>{r.unitPrice}</td><td>{r.exchangeRate}</td><td>{krw(n(r.qty)*n(r.unitPrice)*n(r.exchangeRate))}</td><td>{r.status}</td></tr>)}</tbody></table></div></div>;
+}
+
+function ExchangePage({data,update}){
+  const x=data.exchangeRates;
+  function patch(k,v){ update({...data,exchangeRates:{...x,[k]:v}}); }
+  return <div className="panel"><h2>환율 관리</h2><div className="exchange-grid">{[["usdKrw","USD → KRW"],["usdVnd","USD → VND"],["krwVnd","KRW → VND"],["date","적용일"]].map(([k,l])=><label key={k}>{l}<input type={k==="date"?"date":"number"} value={x[k]} onChange={e=>patch(k,e.target.value)}/></label>)}</div></div>;
+}
+
+function PackingPage({data,update}){
+  function importPacking(sheets){
+    const arr=Object.values(sheets)[0]||[];
+    const mapped=arr.map(r=>({styleNo:r["Style"]||r["Style No."]||"",color:r["Color"]||"",planned:n(r["Planned Qty"]||r["Plan"]),shipped:n(r["Shipped Qty"]||r["Actual Shipped"]),imported:n(r["Imported Qty"]||r["Actual Imported"])}));
+    update({...data,packing:mapped});
+  }
+  return <div className="panel"><div className="head"><div><h2>패킹리스트</h2><p>Namoo 표준 Packing List 양식으로 Import/Export합니다.</p></div><div className="page-actions"><UploadButton onRows={importPacking} label="Packing Import"/><button className="btn" onClick={()=>downloadWorkbook("Namoo_Packing_List.xlsx",{PackingList:data.packing})}>Excel Export</button></div></div><PackingTable rows={data.packing}/></div>;
+}
+function PackingTable({rows}){return <div className="table-wrap"><table><thead><tr><th>Style</th><th>Color</th><th>계획수량</th><th>실제 출고</th><th>실제 수입</th><th>차이</th></tr></thead><tbody>{rows.map((r,i)=><tr key={i}><td>{r.styleNo}</td><td>{r.color}</td><td>{r.planned}</td><td>{r.shipped}</td><td>{r.imported}</td><td className={n(r.imported)-n(r.planned)<0?"negative":"positive"}>{n(r.imported)-n(r.planned)}</td></tr>)}</tbody></table></div>}
+function ShippingPage({data}){return <div className="panel"><h2>출고·수입 현황</h2><PackingTable rows={data.packing}/></div>}
+
+function ActualPurchasePage({data,update}){
+  function importActual(sheets){
+    const arr=Object.values(sheets)[0]||[];
+    const mapped=arr.map(r=>({supplier:r["Supplier"]||"",type:r["Type"]||"",invoice:r["Invoice"]||"",currency:r["Currency"]||"USD",invoiceAmount:n(r["Invoice Amount"]),exchangeRate:n(r["Actual Exchange Rate"]||r["Exchange Rate"]),paymentMonth:r["Payment Month"]||""}));
+    update({...data,purchasesActual:mapped});
+  }
+  return <div className="panel"><div className="head"><div><h2>실제 매입현황</h2><p>Invoice와 실제 환율을 입력하여 실제 매입금액을 확인합니다.</p></div><div className="page-actions"><UploadButton onRows={importActual}/><button className="btn" onClick={()=>downloadWorkbook("실제매입현황.xlsx",{ActualPurchase:data.purchasesActual})}>Excel Export</button></div></div><div className="table-wrap"><table><thead><tr><th>Supplier</th><th>구분</th><th>Invoice</th><th>통화</th><th>Invoice 금액</th><th>실제환율</th><th>KRW 환산</th><th>결제월</th></tr></thead><tbody>{data.purchasesActual.map((r,i)=><tr key={i}><td>{r.supplier}</td><td>{r.type}</td><td>{r.invoice}</td><td>{r.currency}</td><td>{r.invoiceAmount}</td><td>{r.exchangeRate}</td><td>{krw(n(r.invoiceAmount)*n(r.exchangeRate))}</td><td>{r.paymentMonth}</td></tr>)}</tbody></table></div></div>;
+}
+function PaymentPage({data}){
+  const grouped=useMemo(()=>Object.entries(data.purchasesActual.reduce((a,r)=>{a[r.paymentMonth]=(a[r.paymentMonth]||0)+n(r.invoiceAmount)*n(r.exchangeRate);return a;},{})),[data]);
+  return <div className="panel"><h2>월별 결제</h2><div className="cards">{grouped.map(([m,v])=><div className="metric" key={m}><span>{m}</span><strong>{krw(v)}</strong></div>)}</div></div>;
+}
+function SettlementPage({data}){
+  const expected=data.purchases.reduce((s,r)=>s+n(r.qty)*n(r.unitPrice)*n(r.exchangeRate),0);
+  const actual=data.purchasesActual.reduce((s,r)=>s+n(r.invoiceAmount)*n(r.exchangeRate),0);
+  const diff=actual-expected;
+  return <div className="panel"><h2>사후정산</h2><div className="kpis"><Kpi label="예상 발주액" value={krw(expected)}/><Kpi label="실제 매입액" value={krw(actual)}/><Kpi label="정산 차이" value={krw(diff)} cls={diff>0?"negative":"positive"}/><Kpi label="상태" value={Math.abs(diff)<1000000?"정산가능":"검토필요"} cls={Math.abs(diff)<1000000?"positive":"warning"}/></div></div>;
+}
+
+export default App;
+
+const style=document.createElement("style");
+style.textContent=`
+:root{font-family:Arial,"Malgun Gothic",sans-serif}
+*{box-sizing:border-box}.app{--bg:#0d1020;--side:#121526;--card:#15192b;--card2:#0f1324;--line:#282e43;--text:#f6f7fb;--muted:#8d97ab;--accent:#6d5dfc;--accent2:#2d2759;--green:#0f766e;--input:#0d1120;min-height:100vh;display:grid;grid-template-columns:242px 1fr;background:var(--bg);color:var(--text)}
+.app.light{--bg:#f3f5f9;--side:#fff;--card:#fff;--card2:#f8fafc;--line:#dfe5ee;--text:#1f2937;--muted:#718096;--accent:#5b5bd6;--accent2:#ecebff;--green:#0f766e;--input:#fff}
+body{margin:0}button,input,select{font:inherit}.sidebar{background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column}.brand{height:72px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:11px;padding:0 18px}.brand>span{font-size:27px}.brand b,.brand small{display:block}.brand small{color:var(--muted);margin-top:3px}.sidebar nav{padding:12px 10px;flex:1;overflow:auto}.nav-title{font-size:11px;color:var(--muted);padding:10px 9px 6px}.nav-item{width:100%;border:0;background:transparent;color:var(--text);padding:10px 11px;border-radius:9px;text-align:left;display:flex;gap:10px;align-items:center;cursor:pointer;margin-bottom:2px}.nav-item:hover,.nav-item.active{background:var(--accent2);font-weight:800}.sidebar-bottom{border-top:1px solid var(--line);padding:11px}.theme-btn{width:100%;border:1px solid var(--line);border-radius:10px;background:var(--card2);color:var(--text);padding:9px;display:flex;justify-content:space-between;cursor:pointer}.user{display:flex;align-items:center;gap:9px;padding:11px 2px 2px}.avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#ec4899);display:flex;align-items:center;justify-content:center;font-weight:900}.user b,.user small{display:block}.user small{color:var(--muted)}.main{min-width:0}.topbar{height:72px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 22px}.topbar h1{margin:0;font-size:22px}.topbar p{margin:4px 0 0;color:var(--muted);font-size:12px}.content{padding:18px}.stack{display:grid;gap:14px}.panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}.head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:13px}.head h2,.panel h2{margin:0}.head p,.muted{color:var(--muted);font-size:12px}.page-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.page-actions>select{height:39px;border:1px solid var(--line);border-radius:9px;background:var(--input);color:var(--text);padding:0 9px}.btn{height:39px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--text);padding:0 13px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center}.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}.btn.green{background:var(--green);border-color:var(--green);color:#fff}.upload{position:relative;overflow:hidden}.upload input{position:absolute;inset:0;opacity:0}.tabs{display:flex;gap:7px;flex-wrap:wrap}.tab{border:1px solid var(--line);background:var(--card2);color:var(--text);padding:8px 11px;border-radius:9px;cursor:pointer}.tab.active{background:var(--accent);border-color:var(--accent);color:white}.order-grid{display:grid;grid-template-columns:220px 1fr;gap:14px}.sketch{border:1px dashed var(--line);border-radius:13px;background:var(--card2);min-height:250px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;font-size:36px;text-align:center}.sketch b,.sketch small{display:block;font-size:12px}.sketch small{color:var(--muted)}.form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}label{font-size:11px;font-weight:800;color:var(--muted)}input,select{width:100%;margin-top:5px;border:1px solid var(--line);border-radius:8px;background:var(--input);color:var(--text);padding:0 9px;height:36px}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:11px}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid var(--line);padding:8px;white-space:nowrap}th{background:var(--card2);color:var(--muted);font-size:11px;text-align:center}td input{height:29px;margin:0;min-width:70px}.wide{min-width:1700px}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}.kpi,.metric{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:13px}.kpi span,.metric span{color:var(--muted);font-size:11px}.kpi strong,.metric strong{display:block;font-size:20px;margin-top:6px}.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.flow-card{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:13px}.flow-card b,.flow-card span{display:block}.flow-card span{color:var(--muted);font-size:11px;margin-top:5px}.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.metric-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.exchange-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.positive{color:#86efac!important}.warning{color:#fde68a!important}.negative{color:#fca5a5!important}.empty{text-align:center;color:var(--muted);padding:50px}
+@media(max-width:1100px){.app{grid-template-columns:1fr}.sidebar{min-height:auto}.order-grid{grid-template-columns:1fr}.form-grid,.kpis,.exchange-grid,.metric-grid{grid-template-columns:repeat(2,1fr)}.flow{grid-template-columns:1fr}.cards{grid-template-columns:1fr}}
+`;
+document.head.appendChild(style);

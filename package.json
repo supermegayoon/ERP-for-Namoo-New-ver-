@@ -1,6 +1,6 @@
 {
-  "name": "erp-namoo-v8",
-  "version": "8.0.0",
+  "name": "erp-namoo-v8-1",
+  "version": "8.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,5 +15,8 @@
     "react-dom": "^19.1.1",
     "xlsx": "^0.18.5"
   },
-  "devDependencies": {}
+  "devDependencies": {},
+  "engines": {
+    "node": "24.x"
+  }
 }
